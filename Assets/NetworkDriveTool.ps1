@@ -5,6 +5,7 @@
 
  .Description
    リモートフォルダーをネットワークドライブとしてマウントします
+   サーバーへの接続ができない (ping応答が4回中2回失敗) 場合、30秒後に再接続を試みます
 
  .Notes
    2025-01-26 更新
@@ -22,13 +23,20 @@
    ドライブ名
 
  .Parameter IsLogging
-   %Temp%\NetworkDriveMount.log にログを追記します
+   %Temp%\MountNetworkTool.log にログを追記
+   ログの削除は本スクリプトでは実施しないため、常用はしないこと
 
  .Example
-   # 最小
-   MountNetworkDrive.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv"
-   # ドライブ名指定あり
-   MountNetworkDrive.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有"
+   最小
+   PS> MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv"
+
+ .Example
+   ドライブ名指定あり
+   PS> MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有"
+
+ .Example
+   コンソールウィンドウホスト を明示的に指定し、Windows ターミナルからの実行を迂回・ウィンドウを非表示にする
+   C:\Windows\System32\conhost.exe PowerShell -ExecutionPolicy ByPass -WindowStyle Hidden -File MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有"
 #>
 
 [CmdletBinding()]
@@ -41,7 +49,7 @@ param(
 )
 
 If ($IsLogging){
-    Start-Transcript -Path (Join-Path $env:TEMP "NetworkDriveMount.log") -Append
+    Start-Transcript -Path (Join-Path $env:TEMP "MountNetworkTool.log") -Append
 }
 
 Function Test-ServerConnection(){
@@ -49,7 +57,7 @@ Function Test-ServerConnection(){
     Write-Host "$(Get-Date -Format F): サーバーへ接続しています"
     $PingResult = Test-Connection -ComputerName $TestServerName -Count 4 -Delay 1 -ErrorAction Ignore | Where-Object { $_.StatusCode -eq 0 }
     If ($PingResult.Count -lt 2) {
-        Write-Warning "$(Get-Date -Format F): [サーバーからの応答が無いため30秒待機します] $TestServerName"
+        Write-Warning "$(Get-Date -Format F): サーバーからの応答が無いため30秒待機します"
         Start-Sleep -Seconds 30
         Test-ServerConnection
     }
@@ -122,6 +130,7 @@ Function Mount-NetworkDrive(){
 
 Write-Host "Root: $Root`nDriveLetter: $DriveLetter`nTestServerName: $TestServerName`nDriveLabel: $DriveLabel`n"
 Test-ServerConnection
+
 If ($IsLogging){
     Stop-Transcript
 }
