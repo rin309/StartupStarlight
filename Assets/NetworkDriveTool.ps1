@@ -8,7 +8,7 @@
    サーバーへの接続ができない (ping応答が4回中2回失敗) 場合、30秒後に再接続を試みます
 
  .Notes
-   2025-01-26 更新
+   2025-02-02 更新
 
  .Parameter DriveLetter
    ドライブ文字
@@ -21,6 +21,9 @@
 
  .Parameter DriveLabel
    ドライブ名
+
+ .Parameter BeforeDismountDrive
+   事前にドライブの接続を解除
 
  .Parameter IsLogging
    %Temp%\MountNetworkTool.log にログを追記
@@ -35,6 +38,10 @@
    PS> MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有"
 
  .Example
+   認証情報をログイン後に指定する
+   PS> MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有" -BeforeDismountDrive
+
+ .Example
    コンソールウィンドウホスト を明示的に指定し、Windows ターミナルからの実行を迂回・ウィンドウを非表示にする
    C:\Windows\System32\conhost.exe PowerShell -ExecutionPolicy ByPass -WindowStyle Hidden -File MountNetworkTool.ps1 -DriveLetter "Z" -Root "\\file-sv\share" -TestServerName "file-sv" -DriveLabel "共有"
 #>
@@ -45,7 +52,8 @@ param(
     [Parameter(Mandatory=$True)] [String] $Root,
     [Parameter(Mandatory=$True)] [String] $TestServerName,
     [Parameter()] [String] $DriveLabel,
-    [Parameter()] [String] $IsLogging=$False
+    [Parameter()] [Switch] $BeforeDismountDrive=$False,
+    [Parameter()] [Switch] $IsLogging=$False
 )
 
 If ($IsLogging){
@@ -75,31 +83,39 @@ Function Test-NetworkDrive(){
     }
 }
 
+Function Dismount-NetworkDrive(){
+    Try{
+        If ((Get-PSDrive | Where-Object Name -eq $DriveLetter).Count){
+            Write-Host "$(Get-Date -Format F): ドライブのマウントを解除しています"
+            #Remove-SmbMapping "$($DriveLetter):" -Force | Out-Null
+            Start-Process net.exe "use $($DriveLetter): /delete" -Wait -WindowStyle Hidden
+            $Count = 0
+            while($Count -ne 15)
+            {
+                $DriveInfo = Get-PSDrive | Where-Object Name -eq $DriveLetter
+                If ($DriveInfo.Count -eq 0){
+                    Break
+                }
+                $Count++
+                Start-Sleep -Seconds 1
+                Write-Host "$(Get-Date -Format F): ドライブのマウント解除を再試行しています"
+            }
+        }
+    }
+    Catch{
+        Write-Warning "$(Get-Date -Format F): ドライブのマウント解除に失敗しました`n$($_.Exception.Message)"
+    }
+}
+
 Function Mount-NetworkDrive(){
+    If ($BeforeDismountDrive){
+        Dismount-NetworkDrive
+    }
     If (Test-NetworkDrive){
         Write-Host "$(Get-Date -Format F): すでにマウントされています"
     }
     Else{
-        Try{
-            If ((Get-PSDrive | Where-Object Name -eq $DriveLetter).Count){
-                Write-Host "$(Get-Date -Format F): ドライブのマウントを解除しています"
-                Remove-SmbMapping "$($DriveLetter):"
-                $Count = 0
-                while($Count -ne 15)
-                {
-                    $DriveInfo = Get-PSDrive | Where-Object Name -eq $DriveLetter
-                    If ($DriveInfo.Count -eq 0){
-                        Break
-                    }
-                    $Count++
-                    Start-Sleep -Seconds 1
-                    Write-Host "$(Get-Date -Format F): ドライブのマウント解除を再試行しています"
-                }
-            }
-        }
-        Catch{
-            Write-Warning "$(Get-Date -Format F): ドライブのマウント解除に失敗しました`n$($_.Exception.Message)"
-        }
+        Dismount-NetworkDrive
         Try{
             New-PSDrive -Name $DriveLetter -Root $Root -PSProvider FileSystem -Persist -Scope Global -ErrorAction Stop | Out-Null
             #New-SmbMapping が動作しない環境があった
@@ -128,7 +144,7 @@ Function Mount-NetworkDrive(){
     }
 }
 
-Write-Host "Root: $Root`nDriveLetter: $DriveLetter`nTestServerName: $TestServerName`nDriveLabel: $DriveLabel`n"
+Write-Host "Root: $Root`nDriveLetter: $DriveLetter`nTestServerName: $TestServerName`nDriveLabel: $DriveLabel`nBeforeDismountDrive`nBeforeDismountDrive: $BeforeDismountDrive"
 Test-ServerConnection
 
 If ($IsLogging){
